@@ -1,0 +1,71 @@
+Welcome to our Support Center! Below you will find answers to the most common questions about our products, order processing, shipping, returns, and account management.
+
+If you can’t find what you’re looking for, our customer support team is always ready to help. Contact details are available at the bottom of this page.
+
+1. Orders & Purchasing
+How do I place an order?
+Browse our product catalog, select the items you wish to purchase, choose your preferred specifications (such as size or color), and click Add to Cart. Once you are ready, click the Cart icon at the top right of the page and proceed through the checkout steps.
+
+Can I change or cancel my order after placing it?
+We process orders quickly to ensure fast delivery. If you need to modify or cancel an order, please contact customer support within 1 hour of placing it. Once an order enters processing or has shipped, it cannot be canceled, but you may return it after delivery.
+
+What payment methods do you accept?
+We accept major credit/debit cards (Visa, Mastercard, American Express, Discover), PayPal, Apple Pay, and Google Pay.
+
+Will I receive an order confirmation?
+Yes. As soon as your order is placed, an automated confirmation email containing your order details and invoice will be sent to the email address provided at checkout.
+
+2. Shipping & Delivery
+How long does shipping take?
+Shipping times vary depending on your location and chosen shipping method:
+
+Standard Shipping: 3–5 business days
+
+Express Shipping: 1–2 business days
+
+International Shipping: 7–14 business days
+
+Note: Processing times (1–2 business days) are separate from shipping delivery times.
+
+How can I track my shipment?
+Once your order ships, you will receive a shipping confirmation email containing a tracking link and tracking number. You can also log into your account and view your order history to track package progress.
+
+What should I do if my package is lost or delayed?
+If your tracking information hasn't updated in 5 business days or shows delivered but you haven't received it, please check with neighbors or local postal offices first. If it remains missing, contact our support team with your order number, and we will open an investigation.
+
+3. Returns, Refunds, & Exchanges
+What is your return policy?
+We offer a 30-day return policy for most items. To be eligible for a return, items must be unused, unwashed, in their original packaging, and accompanied by proof of purchase.
+
+How do I initiate a return or exchange?
+Visit our Returns Portal (or email support with your order number).
+
+Select the item(s) you wish to return and state the reason.
+
+Print the pre-paid shipping label provided and pack the item securely.
+
+Drop the package off at any authorized shipping location.
+
+When will I get my refund?
+Once we receive and inspect your returned item, we will process your refund. It typically takes 3–7 business days for the credit to appear on your original payment method, depending on your financial institution.
+
+4. Account & Technical Support
+Do I need an account to place an order?
+No, you can check out as a guest. However, creating an account allows you to track orders faster, save shipping addresses, and view your purchase history.
+
+How do I reset my password?
+Click on the Sign In button at the top of the page, select Forgot Password?, and enter your registered email address. You will receive an email link with instructions to reset your password.
+
+What should I do if I encounter a bug or website error?
+Try clearing your browser cache and cookies, or try using an incognito/private browser window. If the issue persists, please take a screenshot of the error and send it to our support team so our technical team can assist you.
+
+Still Need Help?
+Our support team is available Monday through Friday, 9:00 AM – 6:00 PM (EST).
+
+Email: support@yourcompany.com
+
+Phone: +1 (800) 123-4567
+
+Live Chat: Click the chat icon at the bottom right corner of your screen during business hours.
+
+What industry or product is your business focused on? I can easily tailor the questions, tone, and policies specifically for e-commerce, SaaS, or service-based workflows.

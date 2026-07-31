@@ -1,0 +1,10 @@
+langchain
+langchain-groq
+langchain-community
+langgraph
+chromadb
+fastembed
+langchain-text-splitters
+python-dotenv
+streamlit
+langgraph-checkpoint-sqlite

@@ -1,0 +1,60 @@
+# Environment Variables & API Keys (CRITICAL: Keeps secrets off GitHub)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Dependencies / Packages
+node_modules/
+venv/
+.venv/
+env/
+ENV/
+python_env/
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs & Debugging
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE & Code Editor Files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Database / Local Storage / Vector Embeddings
+*.sqlite
+*.sqlite3
+*.db
+/chroma_db/
+/faiss_index/
+/vector_store/
+
+# Build Output / Cache
+dist/
+build/
+out/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
