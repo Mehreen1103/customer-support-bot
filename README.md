@@ -1,7 +1,6 @@
 # Customer Support Agent
 
 A customer support chatbot that classifies incoming queries, retrieves grounded answers from a local knowledge base, drafts replies, checks its own work, and pauses for human approval before high-value refunds go out. Built to demonstrate LangChain and LangGraph working together in a single, realistic pipeline.
-# Customer Support Bot
 
 Here is a preview of the application:
 
