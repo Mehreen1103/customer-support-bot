@@ -1,9 +1,3 @@
-"""
-Minimal Customer Support Triage Agent.
-LangChain: RAG + tool call. LangGraph: routing, QA loop, human-in-the-loop.
-See requirements.txt. Get a free key at https://console.groq.com/keys
-Put it in a .env file as: GROQ_API_KEY=your_key_here
-"""
 
 import os
 from typing import TypedDict, Literal
@@ -30,7 +24,6 @@ SYSTEM_PROMPT = (
     "no preamble, no meta-commentary about the reply, no phrases like 'here is the reply'."
 )
 
-# ---------- LangChain layer: RAG ----------
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -49,7 +42,7 @@ rag_prompt = ChatPromptTemplate.from_messages([
 rag_chain = rag_prompt | llm
 
 def get_order_status(order_id: str) -> str:
-    # TODO: replace with a real lookup (DB/CRM). Hardcoded for demo purposes only.
+
     return f"Order {order_id} is currently in transit, expected in 2 days."
 
 def generate_title(query: str) -> str:
@@ -64,7 +57,7 @@ def generate_title(query: str) -> str:
 
 MAX_RETRIES = 2
 
-# ---------- LangGraph layer: state ----------
+
 class State(TypedDict):
     query: str
     history: str  # recent prior turns, formatted as plain text
