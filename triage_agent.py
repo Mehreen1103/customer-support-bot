@@ -139,6 +139,19 @@ def human_review_node(state: State) -> State:
     decision = interrupt({"draft": state["draft"], "refund_amount": state["refund_amount"]})
     return {**state, "approved": decision == "approve"}
 
+def review_router(state: State) -> str:
+    return "send" if state.get("approved") else "hold"
+
+def hold_node(state: State) -> State:
+    # Reviewer rejected the draft: never send it. Replace it with a neutral
+    # holding message that makes no refund promise.
+    print(f"[log] draft rejected by reviewer, not sent (category={state.get('category')}):\n{state['draft']}\n")
+    holding = (
+        "Thank you for your patience. Your request needs further review by our support team, "
+        "and a team member will follow up with you directly."
+    )
+    return {**state, "draft": holding}
+
 def send_node(state: State) -> State:
     print(f"[log] draft sent to customer (category={state.get('category')}):\n{state['draft']}\n")
     return state
@@ -152,6 +165,7 @@ graph.add_node("billing", billing_node)
 graph.add_node("qa", qa_node)
 graph.add_node("rewrite", rewrite_node)
 graph.add_node("human_review", human_review_node)
+graph.add_node("hold", hold_node)
 graph.add_node("send", send_node)
 
 graph.set_entry_point("classify")
@@ -165,7 +179,8 @@ graph.add_conditional_edges("qa", qa_router, {
     "retry": "rewrite", "human_review": "human_review", "send": "send"
 })
 graph.add_edge("rewrite", "qa")
-graph.add_edge("human_review", "send")
+graph.add_conditional_edges("human_review", review_router, {"send": "send", "hold": "hold"})
+graph.add_edge("hold", END)
 graph.add_edge("send", END)
 
 conn = sqlite3.connect("checkpoints.db", check_same_thread=False)
