@@ -9,7 +9,7 @@ import textwrap
 import streamlit as st
 from langgraph.types import Command
 from triage_agent import app as graph_app, generate_title
-from chat_store import init_db, new_thread_id, save_message, get_threads, get_messages, delete_thread, set_thread_title
+from chat_store import init_db, new_thread_id, save_message, get_threads, get_messages, delete_thread, set_thread_title, user_can_access_thread
 
 st.set_page_config(page_title="Customer Support Bot", layout="wide")
 init_db()
@@ -209,8 +209,8 @@ def format_time(iso_str: str) -> str:
     return dt.strftime("%b %d, %I:%M %p").lstrip("0")
 
 
-def build_history_text(thread_id: str, limit: int = 6) -> str:
-    msgs = get_messages(thread_id)[-limit:]
+def build_history_text(thread_id: str, user_id: str, limit: int = 6) -> str:
+    msgs = get_messages(thread_id, user_id)[-limit:]
     lines = []
     for m in msgs:
         speaker = "Customer" if m["role"] == "user" else "Agent"
@@ -334,13 +334,17 @@ with st.sidebar:
                 st.rerun()
         with col2:
             if st.button("Del", key=f"del_{thread_id}"):
-                delete_thread(thread_id)
+                delete_thread(thread_id, st.session_state.user_id)
                 if st.session_state.thread_id == thread_id:
                     st.session_state.thread_id = None
                 st.rerun()
         st.markdown(f"<div class='thread-time'>{format_time(last_active)}</div>", unsafe_allow_html=True)
 
 # ---------- Main panel ----------
+if st.session_state.thread_id and not user_can_access_thread(st.session_state.thread_id, st.session_state.user_id):
+    st.session_state.thread_id = None
+    st.session_state.pending_interrupt = None
+
 if st.session_state.thread_id is None:
     st.session_state.thread_id = new_thread_id()
     st.query_params["tid"] = st.session_state.thread_id
@@ -355,7 +359,7 @@ st.markdown(
 
 thread_id = st.session_state.thread_id
 config = {"configurable": {"thread_id": thread_id}}
-messages = get_messages(thread_id)
+messages = get_messages(thread_id, st.session_state.user_id)
 
 example_clicked = None
 if not messages and not st.session_state.pending_interrupt:
@@ -413,7 +417,7 @@ if user_query:
         title = generate_title(user_query)
         set_thread_title(thread_id, st.session_state.user_id, title)
 
-    history_text = build_history_text(thread_id)
+    history_text = build_history_text(thread_id, st.session_state.user_id)
 
     with st.spinner("Thinking..."):
         result = graph_app.invoke({"query": user_query, "history": history_text}, config)

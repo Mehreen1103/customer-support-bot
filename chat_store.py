@@ -33,8 +33,29 @@ def init_db():
     conn.close()
 
 
+def _thread_owner(conn, thread_id: str):
+    """Return the owning user_id of a thread, or None if the thread does not exist yet."""
+    row = conn.execute("SELECT user_id FROM threads WHERE thread_id = ?", (thread_id,)).fetchone()
+    if row:
+        return row[0]
+    row = conn.execute("SELECT user_id FROM messages WHERE thread_id = ? LIMIT 1", (thread_id,)).fetchone()
+    return row[0] if row else None
+
+
+def user_can_access_thread(thread_id: str, user_id: str) -> bool:
+    """True if the thread is new (unclaimed) or owned by this user."""
+    conn = sqlite3.connect(DB_PATH)
+    owner = _thread_owner(conn, thread_id)
+    conn.close()
+    return owner is None or owner == user_id
+
+
 def set_thread_title(thread_id: str, user_id: str, title: str):
     conn = sqlite3.connect(DB_PATH)
+    owner = _thread_owner(conn, thread_id)
+    if owner is not None and owner != user_id:
+        conn.close()
+        raise PermissionError("Thread belongs to another user")
     conn.execute(
         "INSERT OR REPLACE INTO threads (thread_id, user_id, title) VALUES (?, ?, ?)",
         (thread_id, user_id, title),
@@ -49,6 +70,10 @@ def new_thread_id() -> str:
 
 def save_message(user_id: str, thread_id: str, role: str, content: str, category: str = None):
     conn = sqlite3.connect(DB_PATH)
+    owner = _thread_owner(conn, thread_id)
+    if owner is not None and owner != user_id:
+        conn.close()
+        raise PermissionError("Thread belongs to another user")
     conn.execute(
         "INSERT INTO messages (user_id, thread_id, role, content, category, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (user_id, thread_id, role, content, category, datetime.utcnow().isoformat()),
@@ -86,19 +111,19 @@ def get_threads(user_id: str):
     return threads
 
 
-def delete_thread(thread_id: str):
+def delete_thread(thread_id: str, user_id: str):
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("DELETE FROM messages WHERE thread_id = ?", (thread_id,))
-    conn.execute("DELETE FROM threads WHERE thread_id = ?", (thread_id,))
+    conn.execute("DELETE FROM messages WHERE thread_id = ? AND user_id = ?", (thread_id, user_id))
+    conn.execute("DELETE FROM threads WHERE thread_id = ? AND user_id = ?", (thread_id, user_id))
     conn.commit()
     conn.close()
 
 
-def get_messages(thread_id: str):
+def get_messages(thread_id: str, user_id: str):
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        "SELECT role, content, category, created_at FROM messages WHERE thread_id = ? ORDER BY id ASC",
-        (thread_id,),
+        "SELECT role, content, category, created_at FROM messages WHERE thread_id = ? AND user_id = ? ORDER BY id ASC",
+        (thread_id, user_id),
     ).fetchall()
     conn.close()
     return [{"role": r[0], "content": r[1], "category": r[2], "created_at": r[3]} for r in rows]
