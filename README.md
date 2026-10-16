@@ -67,9 +67,13 @@ classify → {faq | technical | billing}
 
 ```
 triage_agent.py    LangChain retrieval + LangGraph graph definition
-ui.py               Streamlit chat interface
-chat_store.py       SQLite storage for chat history and thread titles
+ui.py               Streamlit chat interface (customer-facing; has no approval controls)
+reviewer.py         Streamlit reviewer console: approve/reject held drafts (separate app, password-gated)
+chat_store.py       SQLite storage for chat history, thread titles and the pending-review queue
+orders.py           Customer-scoped order lookup (integration point for your order/CRM system)
+tests/              pytest suite (runs the real graph and Streamlit pages with the LLM stubbed)
 requirements.txt
+requirements-dev.txt
 docs/               Your knowledge base (.txt files, chunked and embedded at startup)
 .env                GROQ_API_KEY
 ```
@@ -90,11 +94,24 @@ GROQ_API_KEY=your_key_here
 
 Add plain-text knowledge base files to `docs/`.
 
-Run:
+Run the customer app:
 
 ```bash
 streamlit run ui.py
 ```
+
+Drafts that need a human (refunds over $50, drafts that fail QA) are queued in the database and
+the customer sees "under review". Reviewers approve or reject them in a **separate** app, which
+refuses to start without a password. Run it from the same directory so both share the databases,
+and keep it on an internal port or behind your SSO/VPN:
+
+```bash
+REVIEWER_PASSWORD=choose-a-long-password streamlit run reviewer.py --server.port 8502
+```
+
+Optional demo data for order lookups: `python orders.py seed you@example.com`.
+
+Tests: `pip install -r requirements-dev.txt && pytest tests/`
 
 ## Known limitations
 
@@ -102,6 +119,7 @@ This is a demonstration build, not production-ready:
 
 - Order lookups read a local SQLite table (`orders.py`), scoped to the signed-in customer. Connect `get_order` to the real order/CRM system for production. Load demo data with `python orders.py seed you@example.com`.
 - QA is self-judged by the same model that wrote the draft, with no independent rubric.
+- The reviewer console uses one shared password; replace it with SSO before real use.
 - Identity (name/email on the landing screen) is unverified and stored via URL query params — not real authentication. Swapping in real auth before handling real customer data is a required next step, not optional polish.
 - No retry/backoff around the Groq API call; a failed request currently surfaces as an error rather than degrading gracefully.
 
