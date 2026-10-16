@@ -4,6 +4,7 @@ Run with: streamlit run ui.py
 """
 
 from datetime import datetime, date
+import html
 import textwrap
 
 import streamlit as st
@@ -220,11 +221,15 @@ def build_history_text(thread_id: str, user_id: str, limit: int = 6) -> str:
 
 def render_bubble(role: str, content: str, category: str = None, timestamp: str = None):
     cls = "user" if role == "user" else "assistant"
-    safe_content = content.replace("\n", "<br>")
-    tag_html = f"<span class='category-tag'>{CATEGORY_LABELS.get(category, category)}</span><br>" if category else ""
+    # Message text comes from users and the LLM: escape before it is injected into HTML.
+    safe_content = html.escape(content).replace("\n", "<br>")
+    tag_html = (
+        f"<span class='category-tag'>{html.escape(str(CATEGORY_LABELS.get(category, category)))}</span><br>"
+        if category else ""
+    )
     time_html = f"<div class='msg-time'>{format_time(timestamp)}</div>" if timestamp else ""
-    html = f'<div class="msg-row {cls}"><div class="bubble {cls}">{tag_html}{safe_content}{time_html}</div></div>'
-    st.markdown(html, unsafe_allow_html=True)
+    bubble_html = f'<div class="msg-row {cls}"><div class="bubble {cls}">{tag_html}{safe_content}{time_html}</div></div>'
+    st.markdown(bubble_html, unsafe_allow_html=True)
 
 
 # ---------- Session state ----------
@@ -261,8 +266,8 @@ if not st.session_state.user_id or not st.session_state.customer_name:
         )
 
         with st.form("landing_form"):
-            name_input = st.text_input("Name", placeholder="Your full name", label_visibility="collapsed")
-            email_input = st.text_input("Email", placeholder="you@example.com", label_visibility="collapsed")
+            name_input = st.text_input("Name", placeholder="Your full name", label_visibility="collapsed", max_chars=80)
+            email_input = st.text_input("Email", placeholder="you@example.com", label_visibility="collapsed", max_chars=254)
             submitted = st.form_submit_button("Enter", use_container_width=True, type="primary")
 
         st.markdown(
@@ -289,8 +294,8 @@ if not st.session_state.user_id or not st.session_state.customer_name:
 # ---------- Sidebar ----------
 with st.sidebar:
     st.markdown(f"<div class='sidebar-section-label'>Signed in as</div>", unsafe_allow_html=True)
-    st.markdown(f"<div style='font-weight:600;color:#14532d;'>{st.session_state.customer_name}</div>", unsafe_allow_html=True)
-    st.markdown(f"<div style='font-size:0.78rem;color:#6b9b7a;margin-bottom:0.8rem;'>{st.session_state.user_id}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-weight:600;color:#14532d;'>{html.escape(st.session_state.customer_name)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:0.78rem;color:#6b9b7a;margin-bottom:0.8rem;'>{html.escape(st.session_state.user_id)}</div>", unsafe_allow_html=True)
 
     if st.button("Switch user", use_container_width=True):
         st.session_state.user_id = ""
@@ -350,7 +355,7 @@ if st.session_state.thread_id is None:
     st.query_params["tid"] = st.session_state.thread_id
 
 st.markdown("<div class='center-title'>Customer Support Bot</div>", unsafe_allow_html=True)
-st.markdown(f"<div class='center-welcome'>Welcome, {st.session_state.customer_name}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='center-welcome'>Welcome, {html.escape(st.session_state.customer_name)}</div>", unsafe_allow_html=True)
 st.markdown(
     "<div class='disclaimer'>Responses are AI-drafted and unverified. Refund and order details shown are "
     "placeholder data for this demo build, not live account information.</div>",
