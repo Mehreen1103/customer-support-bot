@@ -4,9 +4,12 @@ Chat history storage. Separate from LangGraph's own checkpoint DB.
 
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 DB_PATH = "chat_history.db"
+
+# A claimed review that was never completed (e.g. the reviewer's app crashed) can be re-claimed after this.
+REVIEW_CLAIM_TIMEOUT_SECONDS = 300
 
 
 def init_db():
@@ -29,6 +32,25 @@ def init_db():
             title TEXT NOT NULL
         )
     """)
+    # Drafts waiting for a human reviewer. Kept in the DB (not st.session_state) so a page
+    # refresh or restart cannot lose them. status: pending | processing | approved | rejected | cancelled
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pending_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thread_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            draft TEXT NOT NULL,
+            refund_amount REAL NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            claimed_at TEXT,
+            decided_by TEXT,
+            decided_at TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_reviews_thread ON pending_reviews (thread_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_reviews_status ON pending_reviews (status)")
     conn.commit()
     conn.close()
 
@@ -115,6 +137,12 @@ def delete_thread(thread_id: str, user_id: str):
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM messages WHERE thread_id = ? AND user_id = ?", (thread_id, user_id))
     conn.execute("DELETE FROM threads WHERE thread_id = ? AND user_id = ?", (thread_id, user_id))
+    # A deleted conversation must not receive a reply later.
+    conn.execute(
+        "UPDATE pending_reviews SET status = 'cancelled' "
+        "WHERE thread_id = ? AND user_id = ? AND status IN ('pending', 'processing')",
+        (thread_id, user_id),
+    )
     conn.commit()
     conn.close()
 
@@ -127,3 +155,101 @@ def get_messages(thread_id: str, user_id: str):
     ).fetchall()
     conn.close()
     return [{"role": r[0], "content": r[1], "category": r[2], "created_at": r[3]} for r in rows]
+
+
+# ---------- Human review queue ----------
+
+def _now() -> str:
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+
+
+def _review_row(row):
+    keys = ("id", "thread_id", "user_id", "draft", "refund_amount", "reason", "status", "created_at")
+    return dict(zip(keys, row))
+
+
+_REVIEW_COLUMNS = "id, thread_id, user_id, draft, refund_amount, reason, status, created_at"
+
+
+def create_pending_review(user_id: str, thread_id: str, draft: str, refund_amount: float = 0.0, reason: str = "") -> int:
+    """Queue a draft for human review. Idempotent: a thread has at most one open review."""
+    conn = sqlite3.connect(DB_PATH)
+    owner = _thread_owner(conn, thread_id)
+    if owner is not None and owner != user_id:
+        conn.close()
+        raise PermissionError("Thread belongs to another user")
+    row = conn.execute(
+        "SELECT id FROM pending_reviews WHERE thread_id = ? AND status IN ('pending', 'processing')",
+        (thread_id,),
+    ).fetchone()
+    if row:
+        conn.close()
+        return row[0]
+    cur = conn.execute(
+        "INSERT INTO pending_reviews (thread_id, user_id, draft, refund_amount, reason, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (thread_id, user_id, draft, float(refund_amount or 0.0), reason or "", _now()),
+    )
+    conn.commit()
+    review_id = cur.lastrowid
+    conn.close()
+    return review_id
+
+
+def get_open_review(thread_id: str, user_id: str):
+    """The customer-side view: is a reply to this user's thread still awaiting review?"""
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        f"SELECT {_REVIEW_COLUMNS} FROM pending_reviews "
+        "WHERE thread_id = ? AND user_id = ? AND status IN ('pending', 'processing') ORDER BY id DESC LIMIT 1",
+        (thread_id, user_id),
+    ).fetchone()
+    conn.close()
+    return _review_row(row) if row else None
+
+
+def list_open_reviews():
+    """Reviewer-side queue, oldest first. For the reviewer console only; it is not scoped to a customer."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        f"SELECT {_REVIEW_COLUMNS} FROM pending_reviews WHERE status IN ('pending', 'processing') ORDER BY id ASC"
+    ).fetchall()
+    conn.close()
+    return [_review_row(r) for r in rows]
+
+
+def claim_review(review_id: int) -> bool:
+    """Atomically take a review so two reviewers (or a double click) cannot both act on it."""
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=REVIEW_CLAIM_TIMEOUT_SECONDS)).isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute(
+        "UPDATE pending_reviews SET status = 'processing', claimed_at = ? "
+        "WHERE id = ? AND (status = 'pending' OR (status = 'processing' AND claimed_at < ?))",
+        (_now(), review_id, cutoff),
+    )
+    conn.commit()
+    claimed = cur.rowcount == 1
+    conn.close()
+    return claimed
+
+
+def complete_review(review_id: int, decision: str, reviewer: str):
+    status = "approved" if decision == "approve" else "rejected"
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE pending_reviews SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'processing'",
+        (status, reviewer, _now(), review_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def release_review(review_id: int):
+    """Put a claimed review back in the queue (the decision could not be processed)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE pending_reviews SET status = 'pending', claimed_at = NULL WHERE id = ? AND status = 'processing'",
+        (review_id,),
+    )
+    conn.commit()
+    conn.close()
