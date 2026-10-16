@@ -357,8 +357,7 @@ if st.session_state.thread_id is None:
 st.markdown("<div class='center-title'>Customer Support Bot</div>", unsafe_allow_html=True)
 st.markdown(f"<div class='center-welcome'>Welcome, {html.escape(st.session_state.customer_name)}</div>", unsafe_allow_html=True)
 st.markdown(
-    "<div class='disclaimer'>Responses are AI-drafted and unverified. Refund and order details shown are "
-    "placeholder data for this demo build, not live account information.</div>",
+    "<div class='disclaimer'>Responses are AI-drafted and unverified.</div>",
     unsafe_allow_html=True,
 )
 
@@ -425,7 +424,9 @@ if user_query:
     history_text = build_history_text(thread_id, st.session_state.user_id)
 
     with st.spinner("Thinking..."):
-        result = graph_app.invoke({"query": user_query, "history": history_text}, config)
+        result = graph_app.invoke(
+            {"query": user_query, "history": history_text, "user_id": st.session_state.user_id}, config
+        )
 
     if "__interrupt__" in result:
         interrupt_data = result["__interrupt__"][0].value

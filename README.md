@@ -41,13 +41,13 @@ LangChain does not know a graph exists. It only sees function calls in, text out
 
 LangGraph owns everything LangChain doesn't: branching, looping, state, and pausing.
 
-**State.** A single `TypedDict` (`State`) is threaded through every step — `query`, `history`, `category`, `draft`, `approved`, `refund_amount`, `retries`. Each node reads the current state and returns a partial update, which LangGraph merges back in.
+**State.** A single `TypedDict` (`State`) is threaded through every step — `query`, `history`, `user_id`, `category`, `draft`, `approved`, `refund_amount`, `review_reason`, `retries`. Each node reads the current state and returns a partial update, which LangGraph merges back in.
 
 **Routing.** `classify_node` labels the query as `faq`, `technical`, or `billing`. `route_query` reads that label and sends execution to the matching node — this is a **conditional edge**, not a hardcoded path.
 
 **Cycles.** After a draft is produced, `qa_node` judges whether it actually answers the question. If not, `qa_router` sends it to `rewrite_node`, which improves the draft and loops back to `qa_node` again. This repeats until the draft passes or `MAX_RETRIES` is hit — LangGraph graphs are not required to be acyclic, which is what makes self-correction possible here.
 
-**Human-in-the-loop.** If a billing reply involves a refund over $50, `qa_router` sends it to `human_review_node`, which calls `interrupt()`. This freezes the graph mid-execution and hands control back to the caller — no reply goes out until a human calls `Command(resume="approve")` (or `"reject"`).
+**Human-in-the-loop.** If a billing reply involves a refund over $50, or a draft still fails QA after `MAX_RETRIES`, `qa_router` sends it to `human_review_node`, which calls `interrupt()`. This freezes the graph mid-execution and hands control back to the caller — no reply goes out until a human calls `Command(resume="approve")` (or `"reject"`). A rejected draft goes to `hold_node`, which sends a neutral holding message instead.
 
 **Persistence.** `SqliteSaver` checkpoints the graph's exact state after every node transition, keyed by `thread_id`. This is what makes the pause in `human_review_node` durable — the graph can resume hours later, even after an app restart, from exactly where it left off.
 
@@ -100,7 +100,7 @@ streamlit run ui.py
 
 This is a demonstration build, not production-ready:
 
-- `order_id` and `refund_amount` are hardcoded placeholders — a real deployment needs an actual order/CRM lookup.
+- Order lookups read a local SQLite table (`orders.py`), scoped to the signed-in customer. Connect `get_order` to the real order/CRM system for production. Load demo data with `python orders.py seed you@example.com`.
 - QA is self-judged by the same model that wrote the draft, with no independent rubric.
 - Identity (name/email on the landing screen) is unverified and stored via URL query params — not real authentication. Swapping in real auth before handling real customer data is a required next step, not optional polish.
 - No retry/backoff around the Groq API call; a failed request currently surfaces as an error rather than degrading gracefully.
