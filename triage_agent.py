@@ -14,6 +14,10 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
 
+from orders import get_order, extract_order_id, init_orders_db
+
+init_orders_db()
+
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
 SYSTEM_PROMPT = (
@@ -41,10 +45,6 @@ rag_prompt = ChatPromptTemplate.from_messages([
 ])
 rag_chain = rag_prompt | llm
 
-def get_order_status(order_id: str) -> str:
-
-    return f"Order {order_id} is currently in transit, expected in 2 days."
-
 def generate_title(query: str) -> str:
     """Short topic summary for the sidebar, not a full echo of the message."""
     prompt = (
@@ -56,16 +56,41 @@ def generate_title(query: str) -> str:
     return title.strip('"\'')
 
 MAX_RETRIES = 2
+REFUND_REVIEW_THRESHOLD = 50  # refunds above this amount need a human reviewer
 
 
 class State(TypedDict):
     query: str
     history: str  # recent prior turns, formatted as plain text
+    user_id: str  # authenticated customer; scopes order lookups
     category: Literal["faq", "technical", "billing"]
     draft: str
     approved: bool
     refund_amount: float
+    review_reason: str  # why a human must review: "refund_over_limit" | "qa_failed" | ""
     retries: int
+
+
+def lookup_order(state: State):
+    """Find the customer's order referenced in the conversation.
+
+    Returns (order or None, text describing the result for the LLM). The text never
+    contains order details unless the order belongs to this customer.
+    """
+    order_id = extract_order_id(state["query"], state.get("history", ""))
+    if not order_id:
+        return None, "No order number was given. Ask the customer for their order number. Do not guess any order details."
+    order = get_order(order_id, state.get("user_id", ""))
+    if order is None:
+        return None, (
+            f"No order '{order_id}' was found on this customer's account. Say you could not find it "
+            "and ask them to check the number. Do not guess any order details."
+        )
+    return order, (
+        f"Order {order['order_id']}: status {order['status']}, "
+        f"expected delivery {order['eta'] or 'unknown'}, total ${order['total']:.2f}."
+    )
+
 
 def classify_node(state: State) -> State:
     history = state.get("history", "")
@@ -77,7 +102,9 @@ def classify_node(state: State) -> State:
     category = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)]).content.strip().lower()
     if category not in ("faq", "technical", "billing"):
         category = "faq"
-    return {**state, "category": category, "retries": 0}
+    # State persists across turns in a thread, so reset per-turn fields.
+    return {**state, "category": category, "retries": 0, "approved": False,
+            "refund_amount": 0.0, "review_reason": ""}
 
 def route_query(state: State) -> str:
     return state["category"]
@@ -89,37 +116,43 @@ def faq_node(state: State) -> State:
     return {**state, "draft": draft}
 
 def technical_node(state: State) -> State:
-    status = get_order_status("12345")  # TODO: extract real order id from query/session
+    _, order_info = lookup_order(state)
     prompt = (
         f"Conversation so far:\n{state.get('history', '')}\n\n"
-        f"Order status: {status}\nWrite a reply to the latest message: {state['query']}"
+        f"Order information: {order_info}\nWrite a reply to the latest message: {state['query']}"
     )
     draft = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)]).content
     return {**state, "draft": draft}
 
 def billing_node(state: State) -> State:
+    order, order_info = lookup_order(state)
     prompt = (
         f"Conversation so far:\n{state.get('history', '')}\n\n"
+        f"Order information: {order_info}\n"
         f"Draft a short refund reply to the latest message: {state['query']}"
     )
     draft = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)]).content
-    # TODO: replace with a real refund amount lookup tied to the actual order. Hardcoded for demo purposes only.
-    return {**state, "draft": draft, "refund_amount": 75.0}
+    # The refund under review is the customer's own order total; 0 when no order was identified.
+    return {**state, "draft": draft, "refund_amount": order["total"] if order else 0.0}
 
 def qa_node(state: State) -> State:
     verdict = llm.invoke(
         f"Does this draft properly answer the query? Reply only 'pass' or 'fail'.\n"
         f"Query: {state['query']}\nDraft: {state['draft']}"
     ).content.strip().lower()
-    return {**state, "approved": verdict.startswith("pass")}
+    approved = verdict.startswith("pass")
+    reason = ""
+    if not approved and state.get("retries", 0) >= MAX_RETRIES:
+        reason = "qa_failed"  # out of retries: a human decides, the draft is not sent as-is
+    elif approved and state["category"] == "billing" and state.get("refund_amount", 0) > REFUND_REVIEW_THRESHOLD:
+        reason = "refund_over_limit"
+    return {**state, "approved": approved, "review_reason": reason}
 
 def qa_router(state: State) -> str:
-    if not state["approved"]:
-        if state.get("retries", 0) >= MAX_RETRIES:
-            return "send"  # avoid infinite retry loop; ship best-effort draft
-        return "retry"
-    if state["category"] == "billing" and state.get("refund_amount", 0) > 50:
+    if state.get("review_reason"):
         return "human_review"
+    if not state["approved"]:
+        return "retry"
     return "send"
 
 def rewrite_node(state: State) -> State:
@@ -136,7 +169,11 @@ def rewrite_node(state: State) -> State:
 def human_review_node(state: State) -> State:
     # interrupt() pauses execution here until resumed with human input
     from langgraph.types import interrupt
-    decision = interrupt({"draft": state["draft"], "refund_amount": state["refund_amount"]})
+    decision = interrupt({
+        "draft": state["draft"],
+        "refund_amount": state.get("refund_amount", 0.0),
+        "reason": state.get("review_reason", ""),
+    })
     return {**state, "approved": decision == "approve"}
 
 def review_router(state: State) -> str:
@@ -188,7 +225,9 @@ app = graph.compile(checkpointer=SqliteSaver(conn))
 
 if __name__ == "__main__":
     config = {"configurable": {"thread_id": "1"}}
-    result = app.invoke({"query": "I want a refund for my order, it never arrived"}, config)
+    result = app.invoke(
+        {"query": "I want a refund for order 12345, it never arrived", "user_id": "demo@example.com"}, config
+    )
     if "__interrupt__" in result:
         print("Paused for human approval:", result["__interrupt__"])
         # resume with: app.invoke(Command(resume="approve"), config)
