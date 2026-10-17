@@ -8,9 +8,8 @@ import html
 import textwrap
 
 import streamlit as st
-from langgraph.types import Command
 from triage_agent import app as graph_app, generate_title
-from chat_store import init_db, new_thread_id, save_message, get_threads, get_messages, delete_thread, set_thread_title, user_can_access_thread
+from chat_store import init_db, new_thread_id, save_message, get_threads, get_messages, delete_thread, set_thread_title, user_can_access_thread, create_pending_review, get_open_review
 
 st.set_page_config(page_title="Customer Support Bot", layout="wide")
 init_db()
@@ -240,8 +239,6 @@ if "customer_name" not in st.session_state:
     st.session_state.customer_name = params.get("name", "")
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = params.get("tid", None)
-if "pending_interrupt" not in st.session_state:
-    st.session_state.pending_interrupt = None
 if "search" not in st.session_state:
     st.session_state.search = ""
 
@@ -307,7 +304,6 @@ with st.sidebar:
     if st.button("New chat", use_container_width=True, type="primary"):
         new_id = new_thread_id()
         st.session_state.thread_id = new_id
-        st.session_state.pending_interrupt = None
         st.query_params["tid"] = new_id
         st.rerun()
 
@@ -334,7 +330,6 @@ with st.sidebar:
                 type="primary" if is_active else "secondary",
             ):
                 st.session_state.thread_id = thread_id
-                st.session_state.pending_interrupt = None
                 st.query_params["tid"] = thread_id
                 st.rerun()
         with col2:
@@ -348,7 +343,6 @@ with st.sidebar:
 # ---------- Main panel ----------
 if st.session_state.thread_id and not user_can_access_thread(st.session_state.thread_id, st.session_state.user_id):
     st.session_state.thread_id = None
-    st.session_state.pending_interrupt = None
 
 if st.session_state.thread_id is None:
     st.session_state.thread_id = new_thread_id()
@@ -357,17 +351,17 @@ if st.session_state.thread_id is None:
 st.markdown("<div class='center-title'>Customer Support Bot</div>", unsafe_allow_html=True)
 st.markdown(f"<div class='center-welcome'>Welcome, {html.escape(st.session_state.customer_name)}</div>", unsafe_allow_html=True)
 st.markdown(
-    "<div class='disclaimer'>Responses are AI-drafted and unverified. Refund and order details shown are "
-    "placeholder data for this demo build, not live account information.</div>",
+    "<div class='disclaimer'>Responses are AI-drafted and unverified.</div>",
     unsafe_allow_html=True,
 )
 
 thread_id = st.session_state.thread_id
 config = {"configurable": {"thread_id": thread_id}}
 messages = get_messages(thread_id, st.session_state.user_id)
+pending_review = get_open_review(thread_id, st.session_state.user_id)
 
 example_clicked = None
-if not messages and not st.session_state.pending_interrupt:
+if not messages and not pending_review:
     render_bubble(
         "assistant",
         f"Hello {st.session_state.customer_name}, I am your customer support bot. How can I assist you?",
@@ -388,28 +382,16 @@ if not messages and not st.session_state.pending_interrupt:
 for msg in messages:
     render_bubble(msg["role"], msg["content"], msg["category"], msg["created_at"])
 
-if st.session_state.pending_interrupt:
-    data = st.session_state.pending_interrupt
-    render_bubble("assistant", data["draft"])
-    st.markdown(
-        f"<p class='status-pending'>Pending approval — refund amount ${data['refund_amount']:.2f}</p>",
-        unsafe_allow_html=True,
+if pending_review:
+    # The customer only sees that the reply is under review: not the unapproved draft, and no approve/reject controls.
+    render_bubble(
+        "assistant",
+        "Your request has been passed to our support team for review. Their reply will appear here once it is ready.",
     )
-    col_a, col_b = st.columns([1, 1])
-    with col_a:
-        approve = st.button("Approve", key="approve_btn", type="primary")
-    with col_b:
-        reject = st.button("Reject", key="reject_btn")
-
-    if approve or reject:
-        decision = "approve" if approve else "reject"
-        with st.spinner("Processing..."):
-            final = graph_app.invoke(Command(resume=decision), config)
-        save_message(st.session_state.user_id, thread_id, "assistant", final["draft"], final.get("category"))
-        st.session_state.pending_interrupt = None
+    if st.button("Check for update", key="refresh_review"):
         st.rerun()
 
-user_query = st.chat_input("Type your message...")
+user_query = st.chat_input("Type your message...", disabled=bool(pending_review))
 if example_clicked:
     user_query = example_clicked
 
@@ -425,11 +407,19 @@ if user_query:
     history_text = build_history_text(thread_id, st.session_state.user_id)
 
     with st.spinner("Thinking..."):
-        result = graph_app.invoke({"query": user_query, "history": history_text}, config)
+        result = graph_app.invoke(
+            {"query": user_query, "history": history_text, "user_id": st.session_state.user_id}, config
+        )
 
     if "__interrupt__" in result:
         interrupt_data = result["__interrupt__"][0].value
-        st.session_state.pending_interrupt = interrupt_data
+        create_pending_review(
+            st.session_state.user_id,
+            thread_id,
+            interrupt_data["draft"],
+            interrupt_data.get("refund_amount", 0.0),
+            interrupt_data.get("reason", ""),
+        )
     else:
         save_message(st.session_state.user_id, thread_id, "assistant", result["draft"], result.get("category"))
 
